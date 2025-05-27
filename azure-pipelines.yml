@@ -1,19 +1,37 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
+# Pipeline simple pour EduPlatform
+# Pipeline minimaliste pour éviter les problèmes de parallelism
 
 trigger:
 - main
 
+# Utilisation d'un agent auto-hébergé ou demande de grant
 pool:
   vmImage: ubuntu-latest
 
+variables:
+  buildConfiguration: 'Release'
+
 steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
+- task: CopyFiles@2
+  displayName: 'Copy Files to Artifact Directory'
+  inputs:
+    SourceFolder: '$(Build.SourcesDirectory)'
+    Contents: |
+      **/*.html
+      **/*.css
+      **/*.js
+      !.git/**
+    TargetFolder: '$(Build.ArtifactStagingDirectory)'
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish Artifact'
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'website'
+    publishLocation: 'Container'
 
 - script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+    echo "Build completed successfully!"
+    echo "Website files are ready for deployment"
+    echo "Request parallelism grant at: https://aka.ms/azpipelines-parallelism-request"
+  displayName: 'Build Summary'
