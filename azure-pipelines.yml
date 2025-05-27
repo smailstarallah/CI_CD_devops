@@ -1,37 +1,39 @@
-# Pipeline simple pour EduPlatform
-# Pipeline minimaliste pour éviter les problèmes de parallelism
+# Pipeline EduPlatform - DÉSACTIVÉ temporairement
+# Ce pipeline nécessite un grant de parallelism Azure DevOps
+# Demandez le grant : https://aka.ms/azpipelines-parallelism-request
+# En attendant, utilisez GitHub Pages ou Netlify
 
-trigger:
-- main
+# Décommentez les lignes ci-dessous une fois le grant obtenu :
+# trigger:
+#   - main
 
-# Utilisation d'un agent auto-hébergé ou demande de grant
-pool:
-  vmImage: ubuntu-latest
+# pool:
+#   vmImage: ubuntu-latest
 
 variables:
-  buildConfiguration: 'Release'
+  buildConfiguration: "Release"
 
 steps:
-- task: CopyFiles@2
-  displayName: 'Copy Files to Artifact Directory'
-  inputs:
-    SourceFolder: '$(Build.SourcesDirectory)'
-    Contents: |
-      **/*.html
-      **/*.css
-      **/*.js
-      !.git/**
-    TargetFolder: '$(Build.ArtifactStagingDirectory)'
+  - task: CopyFiles@2
+    displayName: "Copy Files to Artifact Directory"
+    inputs:
+      SourceFolder: "$(Build.SourcesDirectory)"
+      Contents: |
+        **/*.html
+        **/*.css
+        **/*.js
+        !.git/**
+      TargetFolder: "$(Build.ArtifactStagingDirectory)"
 
-- task: PublishBuildArtifacts@1
-  displayName: 'Publish Artifact'
-  inputs:
-    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
-    ArtifactName: 'website'
-    publishLocation: 'Container'
+  - task: PublishBuildArtifacts@1
+    displayName: "Publish Artifact"
+    inputs:
+      PathtoPublish: "$(Build.ArtifactStagingDirectory)"
+      ArtifactName: "website"
+      publishLocation: "Container"
 
-- script: |
-    echo "Build completed successfully!"
-    echo "Website files are ready for deployment"
-    echo "Request parallelism grant at: https://aka.ms/azpipelines-parallelism-request"
-  displayName: 'Build Summary'
+  - script: |
+      echo "Build completed successfully!"
+      echo "Website files are ready for deployment"
+      echo "Request parallelism grant at: https://aka.ms/azpipelines-parallelism-request"
+    displayName: "Build Summary"
