@@ -1,0 +1,307 @@
+# Pipeline Azure DevOps pour EduPlatform
+# Pipeline CI/CD pour le déploiement d'un site web statique
+
+trigger:
+  - main
+  - develop
+
+variables:
+  # Variables pour le build
+  buildConfiguration: "Release"
+  vmImageName: "ubuntu-latest"
+
+  # Variables pour Azure Storage (Site web statique)
+  azureSubscription: "your-service-connection"
+  storageAccountName: "eduplatformstatic"
+  containerName: "$web"
+
+  # Variables pour les tests
+  nodeVersion: "18.x"
+
+stages:
+  - stage: Build
+    displayName: "Build and Test"
+    jobs:
+      - job: BuildJob
+        displayName: "Build Job"
+        pool:
+          vmImage: $(vmImageName)
+
+        steps:
+          - task: NodeTool@0
+            displayName: "Install Node.js"
+            inputs:
+              versionSpec: $(nodeVersion)
+
+          - script: |
+              npm install -g html-validate
+              npm install -g lighthouse
+              npm install -g pa11y
+            displayName: "Install validation tools"
+
+          - task: CopyFiles@2
+            displayName: "Copy source files"
+            inputs:
+              SourceFolder: "$(Build.SourcesDirectory)"
+              Contents: |
+                **/*.html
+                **/*.css
+                **/*.js
+                **/*.json
+                **/*.md
+                !node_modules/**
+                !.git/**
+              TargetFolder: "$(Build.ArtifactStagingDirectory)/www"
+
+          - script: |
+              echo "Validating HTML files..."
+              find $(Build.ArtifactStagingDirectory)/www -name "*.html" -exec html-validate {} \;
+            displayName: "Validate HTML"
+            continueOnError: true
+
+          - script: |
+              echo "Validating CSS files..."
+              npx stylelint "$(Build.ArtifactStagingDirectory)/www/**/*.css" || true
+            displayName: "Validate CSS"
+            continueOnError: true
+
+          - script: |
+              echo "Running accessibility tests..."
+              pa11y $(Build.ArtifactStagingDirectory)/www/index.html || true
+            displayName: "Accessibility Tests"
+            continueOnError: true
+
+          - task: PublishBuildArtifacts@1
+            displayName: "Publish Artifacts"
+            inputs:
+              PathtoPublish: "$(Build.ArtifactStagingDirectory)/www"
+              ArtifactName: "website"
+              publishLocation: "Container"
+
+  - stage: Deploy_Dev
+    displayName: "Deploy to Development"
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/develop'))
+    jobs:
+      - deployment: DeployDev
+        displayName: "Deploy to Dev Environment"
+        pool:
+          vmImage: $(vmImageName)
+        environment: "development"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: website
+
+                - task: AzureCLI@2
+                  displayName: "Deploy to Azure Storage (Dev)"
+                  inputs:
+                    azureSubscription: $(azureSubscription)
+                    scriptType: "bash"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      # Create storage account if it doesn't exist
+                      az storage account create \
+                        --name $(storageAccountName)dev \
+                        --resource-group your-resource-group \
+                        --location westeurope \
+                        --sku Standard_LRS \
+                        --kind StorageV2
+
+                      # Enable static website hosting
+                      az storage blob service-properties update \
+                        --account-name $(storageAccountName)dev \
+                        --static-website \
+                        --index-document index.html \
+                        --404-document 404.html
+
+                      # Upload files
+                      az storage blob upload-batch \
+                        --account-name $(storageAccountName)dev \
+                        --destination '$(containerName)' \
+                        --source '$(Pipeline.Workspace)/website'
+
+                - task: AzureCLI@2
+                  displayName: "Get Website URL"
+                  inputs:
+                    azureSubscription: $(azureSubscription)
+                    scriptType: "bash"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      WEBSITE_URL=$(az storage account show \
+                        --name $(storageAccountName)dev \
+                        --query "primaryEndpoints.web" \
+                        --output tsv)
+                      echo "Development site deployed to: $WEBSITE_URL"
+                      echo "##vso[task.setvariable variable=websiteUrl;isOutput=true]$WEBSITE_URL"
+
+  - stage: Deploy_Prod
+    displayName: "Deploy to Production"
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: DeployProd
+        displayName: "Deploy to Production Environment"
+        pool:
+          vmImage: $(vmImageName)
+        environment: "production"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: website
+
+                - task: AzureCLI@2
+                  displayName: "Deploy to Azure Storage (Prod)"
+                  inputs:
+                    azureSubscription: $(azureSubscription)
+                    scriptType: "bash"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      # Create storage account if it doesn't exist
+                      az storage account create \
+                        --name $(storageAccountName) \
+                        --resource-group your-resource-group \
+                        --location westeurope \
+                        --sku Standard_LRS \
+                        --kind StorageV2
+
+                      # Enable static website hosting
+                      az storage blob service-properties update \
+                        --account-name $(storageAccountName) \
+                        --static-website \
+                        --index-document index.html \
+                        --404-document 404.html
+
+                      # Upload files
+                      az storage blob upload-batch \
+                        --account-name $(storageAccountName) \
+                        --destination '$(containerName)' \
+                        --source '$(Pipeline.Workspace)/website'
+
+                - task: AzureCLI@2
+                  displayName: "Setup CDN and Custom Domain"
+                  inputs:
+                    azureSubscription: $(azureSubscription)
+                    scriptType: "bash"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      # Get storage account endpoint
+                      STORAGE_ENDPOINT=$(az storage account show \
+                        --name $(storageAccountName) \
+                        --query "primaryEndpoints.web" \
+                        --output tsv | sed 's|https://||' | sed 's|/||')
+
+                      echo "Storage endpoint: $STORAGE_ENDPOINT"
+
+                      # Create CDN profile and endpoint (optional)
+                      # az cdn profile create \
+                      #   --name eduplatform-cdn \
+                      #   --resource-group your-resource-group \
+                      #   --sku Standard_Microsoft
+
+                      # az cdn endpoint create \
+                      #   --name eduplatform \
+                      #   --profile-name eduplatform-cdn \
+                      #   --resource-group your-resource-group \
+                      #   --origin $STORAGE_ENDPOINT
+
+                - task: AzureCLI@2
+                  displayName: "Run Production Tests"
+                  inputs:
+                    azureSubscription: $(azureSubscription)
+                    scriptType: "bash"
+                    scriptLocation: "inlineScript"
+                    inlineScript: |
+                      WEBSITE_URL=$(az storage account show \
+                        --name $(storageAccountName) \
+                        --query "primaryEndpoints.web" \
+                        --output tsv)
+
+                      echo "Production site URL: $WEBSITE_URL"
+
+                      # Wait for deployment to be available
+                      sleep 30
+
+                      # Run basic health check
+                      HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" $WEBSITE_URL)
+                      if [ $HTTP_STATUS -eq 200 ]; then
+                        echo "✅ Production deployment successful!"
+                        echo "##vso[task.setvariable variable=deploymentStatus;isOutput=true]success"
+                      else
+                        echo "❌ Production deployment failed! HTTP Status: $HTTP_STATUS"
+                        exit 1
+                      fi
+
+  - stage: PostDeploy
+    displayName: "Post Deployment Tests"
+    dependsOn:
+      - Deploy_Prod
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: QualityGate
+        displayName: "Quality Gate and Performance Tests"
+        pool:
+          vmImage: $(vmImageName)
+
+        steps:
+          - task: NodeTool@0
+            displayName: "Install Node.js"
+            inputs:
+              versionSpec: $(nodeVersion)
+
+          - script: |
+              npm install -g lighthouse
+              npm install -g pa11y
+            displayName: "Install testing tools"
+
+          - task: AzureCLI@2
+            displayName: "Run Lighthouse Performance Tests"
+            inputs:
+              azureSubscription: $(azureSubscription)
+              scriptType: "bash"
+              scriptLocation: "inlineScript"
+              inlineScript: |
+                WEBSITE_URL=$(az storage account show \
+                  --name $(storageAccountName) \
+                  --query "primaryEndpoints.web" \
+                  --output tsv)
+
+                echo "Running Lighthouse tests on: $WEBSITE_URL"
+
+                # Run Lighthouse audit
+                lighthouse $WEBSITE_URL \
+                  --output json \
+                  --output-path lighthouse-report.json \
+                  --chrome-flags="--headless --no-sandbox" \
+                  --quiet || true
+
+                # Parse results
+                if [ -f lighthouse-report.json ]; then
+                  PERFORMANCE_SCORE=$(node -p "JSON.parse(require('fs').readFileSync('lighthouse-report.json')).lhr.categories.performance.score * 100")
+                  ACCESSIBILITY_SCORE=$(node -p "JSON.parse(require('fs').readFileSync('lighthouse-report.json')).lhr.categories.accessibility.score * 100")
+                  
+                  echo "Performance Score: $PERFORMANCE_SCORE"
+                  echo "Accessibility Score: $ACCESSIBILITY_SCORE"
+                  
+                  # Set quality gate thresholds
+                  if (( $(echo "$PERFORMANCE_SCORE < 80" | bc -l) )); then
+                    echo "⚠️ Performance score below threshold (80)"
+                  fi
+                  
+                  if (( $(echo "$ACCESSIBILITY_SCORE < 90" | bc -l) )); then
+                    echo "⚠️ Accessibility score below threshold (90)"
+                  fi
+                fi
+            continueOnError: true
+
+          - task: PublishTestResults@2
+            displayName: "Publish Test Results"
+            inputs:
+              testResultsFormat: "JUnit"
+              testResultsFiles: "**/lighthouse-report.json"
+              failTaskOnFailedTests: false
+            condition: always()

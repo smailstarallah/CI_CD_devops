@@ -1,0 +1,82 @@
+# Variables d'environnement pour Azure DevOps
+# Ce fichier contient les variables utilisées dans les pipelines
+
+variables:
+  # Configuration générale
+  - name: projectName
+    value: 'EduPlatform'
+  
+  - name: projectDescription
+    value: 'Plateforme d\'e-learning moderne'
+  
+  # Configuration de build
+  - name: buildConfiguration
+    value: 'Release'
+  
+  - name: vmImageName
+    value: 'ubuntu-latest'
+  
+  - name: nodeVersion
+    value: '18.x'
+  
+  # Configuration Azure
+  - name: azureSubscription
+    value: 'your-azure-subscription'
+  
+  - name: resourceGroupName
+    value: 'rg-eduplatform'
+  
+  - name: location
+    value: 'West Europe'
+  
+  # Storage Account pour site statique
+  - name: storageAccountName
+    value: 'steduplatform'
+  
+  - name: storageAccountNameDev
+    value: 'steduplatformdev'
+  
+  - name: containerName
+    value: '$web'
+  
+  # CDN Configuration
+  - name: cdnProfileName
+    value: 'cdn-eduplatform'
+  
+  - name: cdnEndpointName
+    value: 'eduplatform'
+  
+  # Application Insights
+  - name: appInsightsName
+    value: 'ai-eduplatform'
+  
+  # Domaine personnalisé (optionnel)
+  - name: customDomain
+    value: 'www.eduplatform.com'
+  
+  # Configuration des tests
+  - name: performanceThreshold
+    value: '80'
+  
+  - name: accessibilityThreshold
+    value: '90'
+  
+  - name: seoThreshold
+    value: '85'
+  
+  # Configuration de notification
+  - name: slackWebhook
+    value: 'your-slack-webhook-url'
+  
+  - name: teamsWebhook
+    value: 'your-teams-webhook-url'
+  
+  # Configuration de sécurité
+  - name: enableSecurity
+    value: 'true'
+  
+  - name: enableHttps
+    value: 'true'
+  
+  - name: enableCors
+    value: 'true'
